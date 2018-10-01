@@ -7,13 +7,12 @@
 //
 
 import UIKit
-import CoreData
+import RealmSwift
 class TodoyItemViewController: UITableViewController {
 
-    let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
+    var todoItems : Results<Item>?
     
-    var itemArray = [Items]()
-    
+    let realm = try! Realm()
     var selectedCategory : Category?{
         didSet{
             loadItems()
@@ -32,41 +31,69 @@ class TodoyItemViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "DoListItemCell", for: indexPath)
         
-        let currentItem = itemArray[indexPath.row]
-        
-        cell.accessoryType = currentItem.done ? .checkmark : .none
-        cell.textLabel?.text = currentItem.title
+        if  let currentItem = todoItems?[indexPath.row]{
+            cell.textLabel?.text = currentItem.title
+            cell.accessoryType = currentItem.done ? .checkmark : .none
+            
+        }else{
+            cell.textLabel?.text = "No Item Added"
+        }
+     
         return cell
         
     }
     
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-       return itemArray.count
+       return todoItems?.count ?? 1
     }
 
     //MARK: - TableView Delegate MEthod
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        itemArray[indexPath.row].done = !itemArray[indexPath.row].done
-        saveItem()
+        if let item = todoItems?[indexPath.row]{
+            do{
+                try realm.write {
+                    //for deleteing selecting item
+                    //realm.delete(item)
+                    
+                   item.done = !item.done
+                }
+            }catch{
+                print("Saving done status error, \(error)")
+            }
+        }
+        tableView.reloadData()
+        
+//        todoItems[indexPath.row].done = !todoItems[indexPath.row].done
+//        saveItem()
         tableView.deselectRow(at: indexPath, animated: true)
     }
     
     //MARK: - Add New Item
     @IBAction func addButtonPressed(_ sender: UIBarButtonItem) {
+       
         var textField = UITextField()
         let alert = UIAlertController(title: "Add New Item", message: "", preferredStyle: .alert)
         
         let action = UIAlertAction(title: "Add Item", style: .default) { (UIAlertAction) in
             
-            let newItem = Items(context: self.context)
+            if let currentCategory = self.selectedCategory{
+                do{
+                    try self.realm.write {
+                        let newItem = Item()
+                        newItem.currentTime = Date()
+                        newItem.title = textField.text!
+                        currentCategory.items.append(newItem)
+                        print(Date())
+                    }
+                }catch{
+                    print("Saving Item error \(error)")
+                }
+                
+            }
+            self.tableView.reloadData()
             
-            newItem.parentCategory = self.selectedCategory
-            newItem.title = textField.text
-            newItem.done = false
-            self.itemArray.append(newItem)
-            self.saveItem()
         }
-        
+  
         alert.addTextField { (addItemTextField) in
             addItemTextField.placeholder = "Add New Item"
             textField = addItemTextField
@@ -78,49 +105,28 @@ class TodoyItemViewController: UITableViewController {
         
     }
     
-    func saveItem(){
-        do{
-            try context.save()
-        }catch{
-            print("Saving Items Error \(error)")
-        }
-        self.tableView.reloadData()
-    }
-    
-    func loadItems(with request : NSFetchRequest<Items> = Items.fetchRequest(), predicate : NSPredicate? = nil){
+   
+    func loadItems(){
         
-        let categoryPredicate = NSPredicate(format: "parentCategory.name MATCHES %@", selectedCategory!.name!)
-        
-        if let additionalPredicate = predicate{
-            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [categoryPredicate,additionalPredicate])
-        }else{
-            request.predicate = categoryPredicate
-        }
-        
-        do{
-           itemArray =  try context.fetch(request)
-        }catch{
-            print("Fetching data from context error \(error)")
-        }
+        todoItems = selectedCategory?.items.sorted(byKeyPath: "title", ascending: true)
         tableView.reloadData()
-        
+
     }
-    
+
 }
 
 //MARK: - Search Bar Method
 
 extension TodoyItemViewController : UISearchBarDelegate {
     func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
-        let request : NSFetchRequest<Items> = Items.fetchRequest()
         
-        let predicate = NSPredicate(format: "title CONTAINS[cd] %@", searchBar.text!)
+//        todoItems = todoItems?.filter("title CONTAINS[cd] %@", searchBar.text).sorted(byKeyPath: "title", ascending: true)
         
-        request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
-        
-        loadItems(with: request, predicate: predicate)
+        todoItems = todoItems?.filter("title CONTAINS[cd] %@", searchBar.text!).sorted(byKeyPath: "currentTime", ascending: true)
+        tableView.reloadData()
+
     }
-    
+
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         if searchBar.text?.count == 0 {
             loadItems()
